@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -42,7 +43,7 @@ func main() {
 func create(c *gin.Context) {
 	var req CreateMultipartUploadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, err)
+		c.JSON(http.StatusBadRequest, Error{Message: err.Error()})
 		return
 	}
 
@@ -51,7 +52,7 @@ func create(c *gin.Context) {
 		Key:    aws.String(req.Key),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		cS3JSON(c, err)
 		return
 	}
 	uploadID := output.UploadId
@@ -70,7 +71,7 @@ func create(c *gin.Context) {
 
 		u, err := request.Presign(time.Hour * 24)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, err)
+			cS3JSON(c, err)
 			return
 		}
 
@@ -86,7 +87,7 @@ func create(c *gin.Context) {
 func list(c *gin.Context) {
 	var req ListPartsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, err)
+		c.JSON(http.StatusBadRequest, Error{Message: err.Error()})
 		return
 	}
 
@@ -96,7 +97,7 @@ func list(c *gin.Context) {
 		UploadId: aws.String(req.UploadID),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		cS3JSON(c, err)
 		return
 	}
 
@@ -114,7 +115,7 @@ func list(c *gin.Context) {
 func complete(c *gin.Context) {
 	var req CompleteMultipartUploadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, err)
+		c.JSON(http.StatusBadRequest, Error{Message: err.Error()})
 		return
 	}
 
@@ -134,7 +135,7 @@ func complete(c *gin.Context) {
 		},
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		cS3JSON(c, err)
 		return
 	}
 
@@ -144,7 +145,7 @@ func complete(c *gin.Context) {
 func abort(c *gin.Context) {
 	var req AbortMultiUploadRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, err)
+		c.JSON(http.StatusBadRequest, Error{Message: err.Error()})
 		return
 	}
 
@@ -154,11 +155,30 @@ func abort(c *gin.Context) {
 		UploadId: aws.String(req.UploadID),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
+		cS3JSON(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, nil)
+}
+
+func cS3JSON(c *gin.Context, err error) {
+	status := http.StatusInternalServerError
+	e := Error{Message: err.Error()}
+	if rf, ok := err.(awserr.RequestFailure); ok {
+		status = rf.StatusCode()
+	}
+	if awsErr, ok := err.(awserr.Error); ok {
+		e.Code = awsErr.Code()
+		e.Message = awsErr.Message()
+	}
+	c.JSON(status, e)
+}
+
+// Error --
+type Error struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type CreateMultipartUploadRequest struct {
